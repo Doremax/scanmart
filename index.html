@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>SitaPharma Бонус</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.4/dist/iife/reader/index.js"></script>
 <style>
 /* ===== ТЕМА: меняйте цвета здесь ===== */
 :root{
@@ -380,7 +379,7 @@ function render(){
   if (state.stale) html += `<div class="s mut" style="font-size:12px;text-align:center;margin:-2px 0 8px">⟳ ${T('loading')}</div>`;
   if (state.roAgent) html += roAgentScreen(state.roAgent);
   else if (v.role==='agent') html += agentScreen(v);
-  else if (v.role==='client') html += clientScreen(v);
+  else if (v.role==='client') { html += clientScreen(v); setTimeout(loadScanner, 300); }
   else if (v.role==='manager') html += managerScreen(v);
   else html += adminScreen(v);
   app.innerHTML = html;
@@ -569,10 +568,27 @@ let stream=null, scanning=false, busy=false, torch=false;
 const video=$('#video'), canvas=$('#canvas');
 let ctx = null;
 try { ctx = canvas.getContext('2d',{willReadFrequently:true}); } catch(e) {}
-try{ ZXingWASM.prepareZXingModule({fireImmediately:true}); }catch(e){}
+/**
+ * Библиотека сканера (~1 МБ) загружается НЕ при открытии приложения,
+ * а только у клиента — в фоне после первого экрана. Агенты, менеджеры
+ * и админ её не скачивают вовсе, поэтому приложение открывается быстрее.
+ */
+const ZXING_URL = 'https://cdn.jsdelivr.net/npm/zxing-wasm@2.2.4/dist/iife/reader/index.js';
+let zxingPromise = null;
+function loadScanner(){
+  if (typeof ZXingWASM !== 'undefined') return Promise.resolve(true);
+  if (!zxingPromise) zxingPromise = new Promise(res=>{
+    const sc = document.createElement('script');
+    sc.src = ZXING_URL; sc.async = true;
+    sc.onload = ()=>{ try{ ZXingWASM.prepareZXingModule({fireImmediately:true}); }catch(e){} res(true); };
+    sc.onerror = ()=>{ zxingPromise = null; res(false); };
+    document.head.appendChild(sc);
+  });
+  return zxingPromise;
+}
 
 async function openCamera(){
-  if (typeof ZXingWASM==='undefined' || !ctx) return toast(T('scanLibFail'));
+  if (!(await loadScanner()) || !ctx) return toast(T('scanLibFail'));
   try{
     // 1920×1080 + непрерывный автофокус — как в первом сканере, который хорошо читал мелкий Data Matrix
     stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
