@@ -86,7 +86,6 @@ input.f,select.f{width:100%;padding:13px 14px;border-radius:12px;border:1px soli
 #cam .bot button{flex:1;padding:14px;border:none;border-radius:14px;font-size:16px;font-weight:600;color:#fff;background:rgba(255,255,255,.18)}
 .result{border-radius:var(--radius);padding:16px;margin:12px 0;font-weight:500}
 .r-ok{background:var(--accent-soft);color:var(--accent)} .r-no{background:var(--danger-soft);color:var(--danger)}
-.demo{background:var(--warn-soft);color:var(--warn);border-radius:12px;padding:10px 12px;font-size:13px;margin-bottom:10px}
 .loader{text-align:center;padding:60px 0;color:var(--muted)}
 /* Переключатель языка */
 .langbar{display:flex;justify-content:flex-end;gap:4px;margin:-4px 0 6px}
@@ -114,7 +113,7 @@ input.f,select.f{width:100%;padding:13px 14px;border-radius:12px;border:1px soli
 /* ============================================================
  *  НАСТРОЙКИ
  * ============================================================ */
-const API_URL = "https://script.google.com/macros/s/AKfycby_FwucvrE8Ac-K2Ejvn1r-wewwkSXKVC_eO6k5PvZU3e8LYgonrkcUgdq5EigzKL3l/exec";  // адрес развёртывания Apps Script
+const API_URL = "https://script.google.com/macros/s/AKfycbwsl-q-8QjUeFf3f9a2Bf9JjnDkY5uRy4mV9qKy8ZsEF16y5HcVzVsq7y33Nwy8JpPr/exec";  // адрес развёртывания Apps Script
 const SERIAL_LEN = 13;
 
 /* ============================================================
@@ -154,8 +153,7 @@ const I18N = {
     postHint:'Админ файлида «Пополнения» ва «ВыдачаПодарков»га киритилган янги қаторлар ўтказилади',
     readOnly:'фақат кўриш', toPayClients:'Клиентларга тўланиши керак', advances:'Аванслар', agents:'Агентлар',
     clientsN:'{0} клиент', toPay:'тўлаш: {0}', back:'← Орқага', clientsCount:'Клиентлар ({0})',
-    demo:'Демо-кўриниш: маълумотлар намуна. Ролни танланг:', rAgent:'Агент', rClient:'Клиент', rManager:'Менеджер', rAdmin:'Админ',
-    error:'Хатолик'
+    error:'Хатолик', openInTg:'Иловани Telegram ботидаги «Илова» тугмаси орқали очинг.'
   },
   ru: {
     loading:'Загрузка…', hello:'Здравствуйте, {0}', yourBalance:'Ваш баланс · {0}', balance:'Баланс · {0}',
@@ -188,8 +186,7 @@ const I18N = {
     postHint:'Будут проведены новые строки из «Пополнения» и «ВыдачаПодарков» в файле админа',
     readOnly:'только просмотр', toPayClients:'К выплате клиентам', advances:'Авансы', agents:'Агенты',
     clientsN:'{0} клиент.', toPay:'к выплате: {0}', back:'← Назад', clientsCount:'Клиенты ({0})',
-    demo:'Демо-просмотр: данные примерные. Выберите роль:', rAgent:'Агент', rClient:'Клиент', rManager:'Менеджер', rAdmin:'Админ',
-    error:'Ошибка'
+    error:'Ошибка', openInTg:'Откройте приложение кнопкой «Илова» в Telegram-боте.'
   },
   en: {
     loading:'Loading…', hello:'Hello, {0}', yourBalance:'Your balance · {0}', balance:'Balance · {0}',
@@ -222,8 +219,7 @@ const I18N = {
     postHint:'New rows from «Пополнения» and «ВыдачаПодарков» in the admin file will be posted',
     readOnly:'view only', toPayClients:'Owed to clients', advances:'Advances', agents:'Agents',
     clientsN:'{0} clients', toPay:'to pay: {0}', back:'← Back', clientsCount:'Clients ({0})',
-    demo:'Demo view: sample data. Choose a role:', rAgent:'Agent', rClient:'Client', rManager:'Manager', rAdmin:'Admin',
-    error:'Error'
+    error:'Error', openInTg:'Open the app with the «Илова» button in the Telegram bot.'
   }
 };
 const LANGS = [['uz','Ўз'],['ru','Ру'],['en','En']];
@@ -255,16 +251,17 @@ function staticTexts(){
 
 /* ============================================================
  *  ОСНОВА
- *  tg — Telegram. Если страница открыта не в Telegram (просмотр),
- *  включается ДЕМО-режим с примерными данными.
+ *  tg — Telegram. Вне Telegram приложение не работает:
+ *  показывается подсказка открыть его из бота.
  * ============================================================ */
 const tg = window.Telegram && window.Telegram.WebApp;
-const DEMO = !tg || !tg.initData;
+/** Открыто ли приложение из Telegram (есть подписанные данные пользователя) */
+const IN_TG = !!(tg && tg.initData);
 if (tg) { tg.ready(); tg.expand(); try { tg.disableVerticalSwipes(); } catch (e) {} }
 
 const $ = s => document.querySelector(s);
 const app = $('#app');
-let state = { view: null, tab: 'clients', search: '', demoRole: 'agent',
+let state = { view: null, tab: 'clients', search: '',
               obj: '',                      // агент: выбранный Object (дорихона)
               f: { region: '', group: '' }, // менеджер/админ: фильтр Регион → Группа
               roAgent: null };              // агент, открытый менеджером/админом (только чтение)
@@ -343,7 +340,6 @@ function opId(){ return 'F-'+Date.now()+'-'+Math.random().toString(36).slice(2,8
  *  Content-Type text/plain — чтобы Apps Script принял запрос без preflight.
  * ============================================================ */
 async function api(action, data){
-  if (DEMO) return demoApi(action, data||{});
   const r = await fetch(API_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
     body: JSON.stringify(Object.assign({ action, initData: tg.initData, lang: LANG }, data||{})) });
   const j = await r.json();
@@ -354,9 +350,23 @@ async function api(action, data){
 /* ============================================================
  *  ЗАГРУЗКА ГЛАВНОГО ЭКРАНА
  * ============================================================ */
+/**
+ * Последний экран хранится на телефоне (ключ — Telegram ID, чтобы на общем
+ * телефоне не показать чужие данные). При открытии он показывается сразу,
+ * а свежие данные приходят с сервера в фоне.
+ */
+const VIEW_KEY = 'view_' + (tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : 'x');
+function saveView(v){ try { localStorage.setItem(VIEW_KEY, JSON.stringify(v)); } catch(e) {} }
+function cachedView(){ try { return JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); } catch(e) { return null; } }
+
 async function load(){
-  try { state.view = await api('me'); render(); }
-  catch(e){ app.innerHTML = langBar()+'<div class="card"><b>⚠️ '+esc(e.message)+'</b></div>'; bindCommon(); }
+  const old = cachedView();
+  if (old && !state.view) { state.view = old; state.stale = true; render(); }
+  try { state.view = await api('me'); state.stale = false; saveView(state.view); render(); }
+  catch(e){
+    if (state.view) { state.stale = false; render(); toast(e.message); }
+    else { app.innerHTML = langBar()+'<div class="card"><b>⚠️ '+esc(e.message)+'</b></div>'; bindCommon(); }
+  }
 }
 
 /** Переключатель языка вверху: Ўз · Ру · En */
@@ -367,7 +377,7 @@ function langBar(){
 function render(){
   const v = state.view;
   let html = langBar();
-  if (DEMO) html += demoBar();
+  if (state.stale) html += `<div class="s mut" style="font-size:12px;text-align:center;margin:-2px 0 8px">⟳ ${T('loading')}</div>`;
   if (state.roAgent) html += roAgentScreen(state.roAgent);
   else if (v.role==='agent') html += agentScreen(v);
   else if (v.role==='client') html += clientScreen(v);
@@ -505,7 +515,7 @@ function payForm(type){
     btn.disabled = true; btn.textContent = T('sending');
     try{
       const r = await api('createPayout', data);
-      state.view = r.view; haptic('success'); closeSheet();
+      state.view = r.view; saveView(state.view); haptic('success'); closeSheet();
       toast(T('sent')); state.tab='pending'; render();
     }catch(e){ haptic('error'); toast(e.message); btn.disabled=false; btn.textContent=T('send'); }
   };
@@ -514,7 +524,7 @@ function payForm(type){
 /** Агент отменяет ожидающую выдачу */
 async function cancelPayout(id){
   if (!(await confirmBox(T('confirmCancel')))) return;
-  try{ const r = await api('cancelPayout', { payoutId:id }); state.view = r.view; haptic('warning'); toast(T('cancelled')); render(); }
+  try{ const r = await api('cancelPayout', { payoutId:id }); state.view = r.view; saveView(state.view); haptic('warning'); toast(T('cancelled')); render(); }
   catch(e){ toast(e.message); }
 }
 
@@ -562,11 +572,16 @@ try { ctx = canvas.getContext('2d',{willReadFrequently:true}); } catch(e) {}
 try{ ZXingWASM.prepareZXingModule({fireImmediately:true}); }catch(e){}
 
 async function openCamera(){
-  if (DEMO) return sendScan(demoCode());
   if (typeof ZXingWASM==='undefined' || !ctx) return toast(T('scanLibFail'));
   try{
-    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
+    // 1920×1080 + непрерывный автофокус — как в первом сканере, который хорошо читал мелкий Data Matrix
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
     video.srcObject = stream; await video.play();
+    try{
+      const track = stream.getVideoTracks()[0];
+      const caps = track.getCapabilities ? track.getCapabilities() : {};
+      if (caps.focusMode && caps.focusMode.includes('continuous')) await track.applyConstraints({advanced:[{focusMode:'continuous'}]});
+    }catch(e){}
     $('#cam').classList.add('open'); scanning=true; loop();
   }catch(e){ toast(T('camDenied')); }
 }
@@ -680,7 +695,7 @@ $('#sheetBg').onclick = closeSheet;
 /** Окно «Да / Нет»: в Telegram — родное окно, в просмотре — confirm() */
 function confirmBox(text){
   return new Promise(res=>{
-    if (tg && !DEMO && tg.showConfirm) tg.showConfirm(text, ok=>res(!!ok));
+    if (tg && IN_TG && tg.showConfirm) tg.showConfirm(text, ok=>res(!!ok));
     else res(window.confirm(text));
   });
 }
@@ -691,8 +706,10 @@ function bindCommon(){
   document.querySelectorAll('[data-tab]').forEach(el=>el.onclick=()=>{ state.tab=el.dataset.tab; render(); });
   document.querySelectorAll('[data-client]').forEach(el=>el.onclick=()=>openClient(el.dataset.client));
   document.querySelectorAll('[data-cancel]').forEach(el=>el.onclick=()=>cancelPayout(el.dataset.cancel));
-  document.querySelectorAll('[data-role]').forEach(el=>el.onclick=()=>{ state.demoRole=el.dataset.role; state.tab='clients'; state.roAgent=null; state.obj=''; state.search=''; state.f={region:'',group:''}; load(); });
-  const s=$('#search'); if(s){ s.oninput=()=>{ state.search=s.value; const pos=s.selectionStart; render(); const n=$('#search'); n.focus(); n.setSelectionRange(pos,pos); }; }
+  const s=$('#search'); if(s){ s.oninput=()=>{
+    state.search=s.value; clearTimeout(bindCommon._t);
+    bindCommon._t=setTimeout(()=>{ const pos=s.selectionStart; render(); const n=$('#search'); if(n){ n.focus(); n.setSelectionRange(pos,pos); } }, 200);
+  }; }
   const sb=$('#scanBtn'); if(sb) sb.onclick=openCamera;
   document.querySelectorAll('[data-ro-agent]').forEach(el=>el.onclick=()=>openRoAgent(el.dataset.roAgent));
   const rb=$('#roBack'); if(rb) rb.onclick=()=>{ state.roAgent=null; state.search=''; state.obj=''; render(); };
@@ -703,70 +720,17 @@ function bindCommon(){
   const ap=$('#adminPost'); if(ap) ap.onclick=adminPost;
 }
 
-/* ============================================================
- *  ДЕМО-РЕЖИМ (страница открыта не в Telegram)
- *  Примерные данные, чтобы посмотреть внешний вид. Сервер не вызывается.
- * ============================================================ */
-function demoBar(){
-  const r=state.demoRole, b=(k,t)=>`<span class="tab ${r===k?'on':''}" data-role="${k}">${t}</span>`;
-  return `<div class="demo">${T('demo')}</div><div class="tabs">${b('agent',T('rAgent'))}${b('client',T('rClient'))}${b('manager',T('rManager'))}${b('admin',T('rAdmin'))}</div>`;
-}
-const D = {
-  money:{free:2450000,frozen:300000},
-  gifts:[{id:'P01',name:'Термос',free:8,frozen:0},{id:'P02',name:'Сумка',free:5,frozen:1}],
-  clients:[{id:'C001',name:'TURTKUL SRB',object:'TURTKUL SRB',person:'ABANOV DAVRON',balance:640000,registered:true},
-    {id:'C007',name:'TURTKUL SRB',object:'TURTKUL SRB',person:'Юсупова Дилноза',balance:85000,registered:true},
-    {id:'C002',name:'XIVA KASMA',object:'XIVA KASMA',person:'ABDIRIMOVA SHAXNOZA',balance:415000,registered:true},
-    {id:'C008',name:'XIVA KASMA',object:'XIVA KASMA',person:'Отабоев Жасур',balance:0,registered:false},
-    {id:'C003',name:'Табиб дорихона',object:'Табиб дорихона',person:'Алиев Анвар',balance:120000,registered:true},
-    {id:'C005',name:'Саломатлик',object:'Саломатлик',person:'Каримова Нодира',balance:-200000,registered:true}],
-  pending:[{id:'V1',created:'2026-11-12 09:40:00',deadline:'2026-11-12 21:40:00',client:'XIVA KASMA',type:'ДЕНЬГИ',amount:300000,status:'ожидает'}],
-  history:[{created:'2026-11-11 16:20:00',client:'TURTKUL SRB',type:'ДЕНЬГИ',amount:500000,status:'подтверждено'},
-    {created:'2026-11-11 12:05:00',client:'Табиб дорихона',type:'ПОДАРОК',qty:2,gift:'Термос',status:'подтверждено'},
-    {created:'2026-11-10 15:30:00',client:'XIVA KASMA',type:'ДЕНЬГИ',amount:150000,status:'отменено',cancelledBy:'авто'},
-    {created:'2026-11-09 11:10:00',client:'Саломатлик',type:'ДЕНЬГИ',amount:200000,status:'подтверждено'}],
-  today:7
-};
-function demoCode(){ return ['ok','ok','duplicate'][Math.floor(Math.random()*3)]; }
-async function demoApi(action, data){
-  await new Promise(r=>setTimeout(r,250));
-  const r = state.demoRole;
-  const agentV = ()=>({role:'agent',name:"Muhammad Ro'zmatov",group:'MIRA',money:D.money,gifts:D.gifts,clients:D.clients,pending:D.pending});
-  const clientV = ()=>({role:'client',name:'TURTKUL SRB',showHistory:true,today:D.today,limit:200,groups:[
-    {group:'MIRA',agent:"Muhammad Ro'zmatov",balance:640000,earned:1140000,paid:500000,scans:[{time:'2026-11-12 10:12:00',name:'ТОВАР1',points:2}]},
-    {group:'ORION',agent:"Orinboev G'olibjon",balance:90000,earned:90000,paid:0,scans:[{time:'2026-11-12 09:58:00',name:'Амоксициллин',points:3}]}]});
-  if (action==='managerAgent' || action==='adminAgent') return Object.assign(agentV(),{readOnly:true});
-  if (action==='adminPost') return {text:T('stOk')+': 3', view:await demoApi('me',{})};
-  if (action==='me' && r==='manager') return {role:'manager',name:'Doschanov Dilshod',groups:['MIRA'],agents:[
-    {id:'1',name:"Muhammad Ro'zmatov",group:'MIRA',region:'Хорезм',free:2450000,frozen:300000,gifts:['Термос: 8'],pending:1,clients:132,toPay:4870000,advances:-200000,registered:true},
-    {id:'5',name:'Алиев Бекзод',group:'MIRA',region:'Қорақалпоғистон',free:950000,frozen:0,gifts:[],pending:0,clients:118,toPay:2310000,advances:0,registered:false}]};
-  if (action==='me') return r==='agent'?agentV(): r==='client'?clientV(): {role:'admin',pendingCount:3,unposted:0,clientsTotal:912,clientsUnregistered:214,agentsUnregistered:1,
-    agents:[{id:'1',name:"Muhammad Ro'zmatov",group:'MIRA',region:'Хорезм',free:2450000,frozen:300000,registered:true,status:'активен'},
-      {id:'2',name:"Orinboev G'olibjon",group:'ORION',region:'Хорезм',free:1800000,frozen:0,registered:true,status:'активен'},
-      {id:'3',name:'Каландарова Шахло',group:'ONYX',region:'Хорезм',free:900000,frozen:0,registered:true,status:'активен'},
-      {id:'4',name:'Sabirov Rasulbek',group:'ORION',region:'Хорезм',free:0,frozen:0,registered:false,status:'активен'},
-      {id:'5',name:'Алиев Бекзод',group:'MIRA',region:'Қорақалпоғистон',free:950000,frozen:0,registered:true,status:'активен'},
-      {id:'6',name:'Турсунов Азиз',group:'GAGAN',region:'Қорақалпоғистон',free:400000,frozen:0,registered:true,status:'активен'}],
-    advances:[{name:'Саломатлик',group:'MIRA',agent:"Muhammad Ro'zmatov",balance:-200000}]};
-  if (action==='clientCard'){ const c=D.clients.find(x=>x.id===data.clientId); return {id:c.id,name:c.name,group:'MIRA',balance:c.balance,paid:500000,earned:c.balance+500000,
-    scans:[{time:'2026-11-12 10:12:00',name:'ТОВАР1',points:2},{time:'2026-11-11 17:40:00',name:'Амоксициллин',points:3}],
-    payouts:[{created:'2026-11-11 16:20:00',type:'ДЕНЬГИ',amount:500000,status:'подтверждено'}]}; }
-  if (action==='createPayout'){ const c=D.clients.find(x=>x.id===data.clientId);
-    if (data.type==='ДЕНЬГИ'){ if(data.amount>D.money.free) throw new Error(T('error')); D.money.free-=data.amount; D.money.frozen+=data.amount; }
-    else { const g=D.gifts.find(x=>x.id===data.giftId); if(data.qty>g.free) throw new Error(T('error')); g.free-=data.qty; g.frozen+=data.qty; }
-    D.pending.unshift({id:'V'+Date.now(),created:'2026-11-12 11:00:00',deadline:'2026-11-12 23:00:00',client:c.name,type:data.type,amount:data.amount,qty:data.qty,gift:(D.gifts.find(x=>x.id===data.giftId)||{}).name,status:'ожидает'});
-    return {payoutId:'V',view:agentV()}; }
-  if (action==='cancelPayout'){ const i=D.pending.findIndex(p=>p.id===data.payoutId); const p=D.pending.splice(i,1)[0];
-    if(p.type==='ДЕНЬГИ'){D.money.free+=p.amount;D.money.frozen-=p.amount;} else {const g=D.gifts.find(x=>x.name===p.gift); g.free+=p.qty; g.frozen-=p.qty;}
-    return {view:agentV()}; }
-  if (action==='history') return D.history;
-  if (action==='scan'){ if(data.raw==='ok') D.today++; return Object.assign(data.raw==='ok'?{status:'ok',name:'ТОВАР1',points:2,sum:10000}:{status:'duplicate'},{view:clientV()}); }
-}
-
 document.documentElement.lang = LANG;
 staticTexts();
-$('#app').innerHTML = `<div class="loader">${T('loading')}</div>`;
-load();
+if (IN_TG) {
+  $('#app').innerHTML = `<div class="loader">${T('loading')}</div>`;
+  load();
+} else {
+  // Открыто не из Telegram (обычный браузер): данных нет, только подсказка
+  const showOutside = ()=>{ app.innerHTML = langBar()+`<div class="card" style="text-align:center;padding:28px 16px">📲<br><br>${T('openInTg')}</div>`;
+    document.querySelectorAll('[data-lang]').forEach(el=>el.onclick=()=>{ setLang(el.dataset.lang); showOutside(); }); };
+  showOutside();
+}
 </script>
 </body>
 </html>
